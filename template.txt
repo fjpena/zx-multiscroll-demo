@@ -1,0 +1,6 @@
+# name          load_addr  copy_addr  ram_bank  compressed?
+3
+sprites.bin     32768       49152         1           0
+levels.bin      32768       49152         6           0
+demo.bin        24576       24576         0           0
+33025

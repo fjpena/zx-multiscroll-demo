@@ -1,0 +1,33 @@
+Main RAM
+--------
+
+Start   End     Size    Usage
+        24599   ??      Stack
+
+$8000   $8100   257     IM2 table
+$8101   $99FF   6399    Basic engine code
+$9A00   $9A2B   43      LRU_prev
+$9A2C   $9A99   110     FREE
+$9A9A   $9ABF   37      Base interrupt routine
+$9AC0   $9AFF   64      FREE
+$9B00   $9B2B   43      LRU_next
+$9B2C   $9B55   42      FREE
+$9B80   $9BFF   86      Cache mapping
+$9C00   $9FFF   1024    Sprite cache table
+$A000   $AEFF   4830    Level tiles, pre-shifted (up to 10)
+$AF00   $AFFF   256     FREE
+$B000   $BFFF   4096    Pre-shifted sprite cache
+
+RAM 0
+-----
+$C000           4096    Current level map
+
+
+RAM 1
+-----
+$C000           4096    Sprites (16x16, up to 64 frames)
+
+
+RAM 6
+-----
+Level map: 4K? That would give us 256*16 tiles, with multi-directional scroll
