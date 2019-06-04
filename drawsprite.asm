@@ -1,5 +1,6 @@
 ; Limited to 16x16 sprites, with mask
 ; Originally taken from a tutorial by dmsmith, then modified
+; Optimized by Spirax (thanks a lot!)
 
 ; Input:
 ;	DE: sprite number
@@ -64,92 +65,81 @@ DrawSprite:
 
         pop bc                  ; get X and Y back!
         ; now calculate screen addresses and stuff, then paint
-        ld (lineloop+1), HL		; save pointer
-     
-		ld a, 16		; 16-line sprite
-		ld (LINECOUNT), a
-
         ld a, c			; 4
 		and $07			; 7  <-the 3 lowest bits are the line within a char
-		ld h,a			; 4
+		ld d,a			; 4
 		ld a,c			; 4  <- the top 2 bits are the screen third
 		rra			; 4
 		rra			; 4
 		rra			; 4
 		and $18			; 7
-		or h			; 4
-		or $C0			; 4	<- If the start address is 16384, this should be $40
-		ld h,a			; 4 (total 50 t-states) H has the high byte of the address 
+		or d			; 4
+		or $C0			; 7	<- If the start address is 16384, this should be $40
+		ld d,a			; 4 (total 53 t-states) H has the high byte of the address 
 		
 		ld a,b			;4
 		rra			;4
 		rra			;4
 		rra			;4
 		and $1f			;7  <- the top 5 bits are the char pos. The low 3 bits are the pixel pos
-		ld l,a			;4
+		ld e,a			;4
 		ld a,c			;4
 		rla			;4
 		rla			;4
 		and $e0			;7
-		or l			;4
-		ld l,a			;4 (total 54 t-states) L has the low byte of the address
-		ld (SCRADD),HL		; save the screen address in SCRADD
+		or e			;4
+		ld e,a			;4 (total 54 t-states) L has the low byte of the address
 		
+		ld bc, $1020		;B= 16 for the loop C=32 to add a line
+		;HL = Sprite address , DE = Screen address
 lineloop:
-		ld hl, 0		; this will be modified with the right value to load
-		ld e, (hl)
+        ; NOTE: the byte order in the cached sprite entry is a bit different
+        ; We have one byte of mask, then one byte of gfx. This was swapped when
+        ; storing in the cache, so keep this in mind if you want to reuse this
+        ; routine without the cache
+		ld a, (de)
+		and (hl)
 		inc hl
-		ld d, (hl)
-		inc hl			; first the mask
-		ld c, (hl)
+		or (hl)
 		inc hl
-		ld b, (hl)
-		inc hl			; then the sprite
-		ld a, (hl)
-		ld (data+1),a		; third sprite byte				
+		ld (de), a 
+		inc e
+
+		ld a, (de)
+		and (hl)
 		inc hl
-		ld a, (hl)
-		ld (mask+1),a 		; third mask byte
+		or (hl)
 		inc hl
-		ld (lineloop+1), hl	; save HL
+		ld (de), a 
+		inc e
 
-		ld hl, (SCRADD)		; get screen address in BC
-		ld a, (hl)		; get what is there
-		and e			; AND with mask
-		or c			; OR with sprite data
-		ld (hl), a		; store
-		inc l			; next char
+		ld a, (de)
+		and (hl)
+		inc hl
+		or (hl)
+		inc hl
+		ld (de), a 
 
-		ld a, (hl)		; repeat for the next line
-		and d
-		or b
-		ld (hl), a
-		inc l
+		dec e
+		dec e
+		inc d			; next line
 
-		ld a, (hl)
-mask:		and 255			; 255 will be replaced by what was loaded before
-data:		or 0			; 0 will be replaced by what was loaded before
-		ld (hl), a
-
-		dec l
-		dec l
-		inc h			; next line
-
-		ld a,h
+		ld a, d
 		and 7
-		jr nz, draw_a1		; if the low 3 bits of B are zero
-		ld a, l
-		add a, 32
-		ld l,a
+		jr z, draw_a2		; if the low 3 bits of B are zero
+		djnz lineloop
+		ret
+
+draw_a2:
+		ld a, e
+		add a, c
+		ld e, a
 		jr c, draw_a1		; and C + 32 overflows
-		ld a,h
+		ld a, d
 		sub 8			; then we go to the next third of the screen
-		ld h,a
+		ld d, a
 draw_a1:
-		ld (SCRADD),hl		; store the screen address again
-		ld hl, LINECOUNT
-		dec (hl)
-		jp nz, lineloop		; go to next line
+		djnz lineloop
 		ret
 
 ; Insert sprite in cache. This means
@@ -267,7 +257,7 @@ insert_unused_entry:
 
 
 			; The target position is HL, now rotate!
-			ld (SCRADD),HL		; save the target address in SCRADD		
+			ld (SCRADD_rotate),HL		; save the target address in SCRADD		
 
 			ld hl, $C000    ; $C000 is the address of the first sprite
 			and a			; clear carry flag
@@ -320,23 +310,24 @@ insert_rotateloop:	ex af, af'		; a ==mask
 			dec l
 			jp nz, 	insert_rotateloop		; at the end, we have DEa with the rotated mask, BCa' with the rotated sprite
 
-insert_skiprotate:	ld hl, (SCRADD)		; get screen address in BC
-			ld (hl), e
+SCRADD_rotate: EQU $+1
+insert_skiprotate:	ld hl, 0	; get screen address in BC
+			ld (hl), e		; mask byte1
 			inc hl
-			ld (hl), d		; write DE (mask) in cache
+			ld (hl), c		; byte sprite 1
 			inc hl
-			ld (hl), c
+			ld (hl), d		; mask byte 2
 			inc hl
-			ld (hl), b		; write BC (sprite) in cache
+			ld (hl), b		; byte sprite 2
 			inc hl
+			ex af, af'
+			ld (hl), a		; write A '(last byte of mask) in cache
+			inc hl
+			ex af, af'
 			ld (hl), a		; write A (last byte of sprite) in cache
 			inc hl
-			ex af, af'
-			ld (hl), a		; write A' (last byte of mask) in cache
-			inc hl
-			ex af, af'
 
-			ld (SCRADD),hl		; store the write address again
+			ld (SCRADD_rotate),hl		; store the write address again
 			ld hl, LINECOUNT	
 			dec (hl)
 			jp nz, insert_lineloop		; go to next line
@@ -449,7 +440,6 @@ LRU_next      	EQU $9B00		; cache list next pointers, 43 bytes used (some bytes 
 LRU_prev      	EQU $9A00		; cache list prev pointers, 43 bytes used (some bytes wasted!)
 LRU_first	db 0
 LRU_last	db 41			; pointers to the first and last entry in the cache
-SCRADD          dw 0
 LINECOUNT       db 0
 LRU_LASTENTRY   EQU 42
 Multiply_by_96  dw 0,96,192,288,384,480,576,672,768,864,960,1056,1152
